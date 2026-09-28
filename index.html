@@ -1,0 +1,96 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>C# Engineer Learning Tracker</title>
+  <meta name="description" content="Local-only personal tracker for learning C#, ASP.NET Core, SQL, Angular, Azure and system design." />
+  <!-- Inline SVG favicon so the app needs zero network requests -->
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%238b5cf6'/%3E%3Ctext x='16' y='22' font-family='system-ui,sans-serif' font-size='16' font-weight='700' fill='white' text-anchor='middle'%3EC%23%3C/text%3E%3C/svg%3E" />
+  <link rel="apple-touch-icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%238b5cf6'/%3E%3Ctext x='16' y='22' font-family='system-ui,sans-serif' font-size='16' font-weight='700' fill='white' text-anchor='middle'%3EC%23%3C/text%3E%3C/svg%3E" />
+  <link rel="stylesheet" href="css/base.css" />
+  <link rel="stylesheet" href="css/components.css" />
+</head>
+<body>
+
+  <!-- ============================================================
+       APP SHELL
+       sidebar  |  topbar + routed view
+       ============================================================ -->
+  <div class="app">
+
+    <!-- Sidebar navigation (collapses into an off-canvas drawer on tablet) -->
+    <aside class="sidebar" id="sidebar" aria-label="Main navigation">
+      <div class="sidebar__brand">
+        <div class="brand-mark">C#</div>
+        <div class="brand-text">
+          <strong>Engineer Tracker</strong>
+          <span>Learning progress</span>
+        </div>
+      </div>
+      <nav class="sidebar__nav" id="nav"><!-- built by js/app.js --></nav>
+      <div class="sidebar__foot">
+        <div class="mini-progress" id="sidebar-progress"><!-- built by js/app.js --></div>
+        <p class="sidebar__note">All data stays in this browser.</p>
+      </div>
+    </aside>
+
+    <!-- Click-catcher shown behind the drawer on small screens -->
+    <div class="scrim" id="scrim" hidden></div>
+
+    <div class="main">
+      <header class="topbar">
+        <button class="icon-btn only-tablet" id="menu-btn" title="Menu" aria-label="Open navigation"></button>
+        <div class="topbar__title">
+          <h1 id="page-title">Dashboard</h1>
+          <p id="page-subtitle"></p>
+        </div>
+        <div class="topbar__actions">
+          <div class="session-pill" id="session-pill" hidden>
+            <span class="dot"></span>
+            <span id="session-timer">00:00:00</span>
+            <button class="btn btn--sm btn--danger" id="session-stop">End session</button>
+          </div>
+          <div class="streak-chip" id="streak-chip" title="Current streak"></div>
+          <button class="btn btn--primary" id="start-session-btn">Start session</button>
+          <button class="icon-btn" id="theme-btn" title="Toggle theme" aria-label="Toggle theme"></button>
+        </div>
+      </header>
+
+      <main class="view" id="view" tabindex="-1"><!-- routed views render here --></main>
+    </div>
+  </div>
+
+  <div id="modal-root"></div>
+  <div id="toast-root" class="toast-root" aria-live="polite"></div>
+
+  <!-- ============================================================
+       SCRIPTS - plain classic scripts (no build step, no modules)
+       so the app also works when opened straight from the file system.
+       Order matters: data -> core -> ui -> views -> app bootstrap.
+       ============================================================ -->
+  <script src="js/data/roadmap.js"></script>
+  <script src="js/data/projects.js"></script>
+  <script src="js/data/demo.js"></script>
+
+  <script src="js/core/utils.js"></script>
+  <script src="js/core/store.js"></script>
+  <script src="js/core/review.js"></script>
+  <script src="js/core/progress.js"></script>
+  <script src="js/core/charts.js"></script>
+  <script src="js/core/icons.js"></script>
+  <script src="js/core/ui.js"></script>
+
+  <script src="js/views/dashboard.js"></script>
+  <script src="js/views/roadmap.js"></script>
+  <script src="js/views/topics.js"></script>
+  <script src="js/views/sessions.js"></script>
+  <script src="js/views/reviews.js"></script>
+  <script src="js/views/challenges.js"></script>
+  <script src="js/views/projects.js"></script>
+  <script src="js/views/statistics.js"></script>
+  <script src="js/views/settings.js"></script>
+
+  <script src="js/app.js"></script>
+</body>
+</html>
