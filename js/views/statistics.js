@@ -27,7 +27,9 @@ App.views.statistics = (function () {
 
     root.innerHTML =
       headline(o, streak, s) +
+      investedVsDemonstrated() +
       overviewSection(o, phases) +
+      skillSection() +
       phaseTable(phases) +
       timeSection(weekly, daily) +
       listsSection(completed, practicing, weak, overdue) +
@@ -61,6 +63,128 @@ App.views.statistics = (function () {
       '<span class="stat__label">' + U.escapeHtml(label) + '</span>' +
       '<span class="stat__value">' + U.escapeHtml(value) + '</span>' +
       '<span class="stat__hint">' + U.escapeHtml(hint) + '</span></div>';
+  }
+
+  /* ---------- Time invested vs skill demonstrated ---------- */
+
+  function investedVsDemonstrated() {
+    var m = App.mastery.metrics();
+    var o = P.overall();
+    var minutes = P.totalMinutes();
+    var hoursByPhase = phaseHours();
+
+    return '<div class="grid grid--2 section">' +
+      '<div class="card">' +
+        '<div class="card__head">' + icon('clock', 16) + '<h2>Time invested</h2></div>' +
+        '<p class="small faint" style="margin-bottom:12px">How long you have spent. Necessary, but not evidence ' +
+          'of anything on its own.</p>' +
+        '<div class="grid grid--stats" style="gap:12px">' +
+          kv('Total hours', String(U.toHours(minutes))) +
+          kv('Sessions', String(App.store.get().sessions.length)) +
+          kv('Topics opened', String(m.lessonsViewed)) +
+          kv('Avg session', U.fmtDuration(App.store.get().sessions.length
+            ? Math.round(minutes / App.store.get().sessions.length) : 0)) +
+        '</div>' +
+        '<div class="stat__label" style="margin:16px 0 8px">Hours by phase</div>' +
+        (hoursByPhase.length
+          ? hoursByPhase.map(function (row) {
+              return '<div class="row small" style="margin-bottom:6px">' +
+                '<span class="phase-dot" style="background:' + row.color + ';margin-top:0"></span>' +
+                '<span>' + U.escapeHtml(row.name) + '</span>' +
+                '<span class="spacer tnum">' + row.hours + 'h</span></div>';
+            }).join('')
+          : '<p class="small faint">No sessions linked to a topic yet.</p>') +
+      '</div>' +
+
+      '<div class="card">' +
+        '<div class="card__head">' + icon('award', 16) + '<h2>Skill demonstrated</h2></div>' +
+        '<p class="small faint" style="margin-bottom:12px">What you have actually proved you can do. This is the ' +
+          'number that matters.</p>' +
+        '<div class="grid grid--stats" style="gap:12px">' +
+          kv('Topics demonstrated', String(m.demonstratedTopics), 'ok') +
+          kv('Exercises passed', String(m.exercisesPassed), 'ok') +
+          kv('Solved unaided', String(m.independentSolves), 'ok') +
+          kv('Challenges passed', String(m.challengesPassed), 'ok') +
+        '</div>' +
+        '<div class="grid grid--stats" style="gap:12px;margin-top:12px">' +
+          kv('Checks passed', String(m.checksPassed)) +
+          kv('Bugs fixed', String(m.debugPassed)) +
+          kv('Hints used', String(m.hintsUsed), m.hintsUsed > m.exercisesPassed ? 'warn' : '') +
+          kv('Solutions viewed', String(m.solutionsViewed), m.solutionsViewed > 5 ? 'warn' : '') +
+        '</div>' +
+        '<div style="margin-top:16px">' +
+          '<div class="row small faint" style="margin-bottom:5px">' +
+            '<span>Opened vs demonstrated</span>' +
+            '<span class="spacer tnum">' + m.demonstratedTopics + ' / ' + m.lessonsViewed + '</span></div>' +
+          C.progressBar(m.lessonsViewed ? Math.round((m.demonstratedTopics / m.lessonsViewed) * 100) : 0,
+                        'var(--ok)') +
+          '<p class="small faint" style="margin-top:8px">A big gap here means you are reading more than you are ' +
+            'practising.</p>' +
+        '</div>' +
+      '</div>' +
+    '</div>';
+  }
+
+  function kv(label, value, tone) {
+    return '<div><div class="stat__label">' + U.escapeHtml(label) + '</div>' +
+      '<div style="font-size:20px;font-weight:700;margin-top:2px' +
+      (tone === 'ok' ? ';color:var(--ok)' : tone === 'warn' ? ';color:var(--warn)' : '') +
+      '" class="tnum">' + U.escapeHtml(value) + '</div></div>';
+  }
+
+  /** Minutes logged against each phase, via each session's topic. */
+  function phaseHours() {
+    var byPhase = {};
+    App.store.get().sessions.forEach(function (x) {
+      var t = App.store.topicById(x.topicId);
+      if (!t) return;
+      byPhase[t.phaseId] = (byPhase[t.phaseId] || 0) + (x.durationMinutes || 0);
+    });
+    return App.ROADMAP
+      .filter(function (p) { return byPhase[p.id]; })
+      .map(function (p) {
+        return { name: p.name, color: p.color, hours: U.toHours(byPhase[p.id]) };
+      })
+      .sort(function (a, b) { return b.hours - a.hours; });
+  }
+
+  /* ---------- Average skill scores across all started topics ---------- */
+
+  function skillSection() {
+    var topics = App.store.get().topics.filter(function (t) { return t.status !== 'not-started'; });
+    if (!topics.length) return '';
+
+    var skills = [
+      { key: 'understanding', label: 'Understanding' },
+      { key: 'coding', label: 'Coding' },
+      { key: 'problemSolving', label: 'Problem solving' },
+      { key: 'debugging', label: 'Debugging' }
+    ].map(function (sk) {
+      sk.avg = U.round(U.avg(topics.map(function (t) { return t[sk.key] || 0; })), 1);
+      return sk;
+    });
+
+    var sorted = skills.slice().sort(function (a, b) { return b.avg - a.avg; });
+    var strongest = sorted[0];
+    var weakest = sorted[sorted.length - 1];
+
+    return '<div class="card section">' +
+      '<div class="card__head">' + icon('statistics', 16) + '<h2>Skill profile</h2>' +
+        '<span class="spacer small faint">averaged over ' + topics.length + ' started topics</span></div>' +
+      skills.map(function (sk) {
+        return '<div style="margin-bottom:12px">' +
+          '<div class="row small" style="margin-bottom:5px">' +
+            '<span>' + U.escapeHtml(sk.label) + '</span>' +
+            '<span class="spacer tnum">' + sk.avg + ' / 5</span></div>' +
+          C.progressBar((sk.avg / 5) * 100,
+            sk.key === weakest.key ? 'var(--warn)' : sk.key === strongest.key ? 'var(--ok)' : 'var(--accent)') +
+        '</div>';
+      }).join('') +
+      '<div class="row" style="margin-top:6px">' +
+        '<span class="badge badge--ok">Strongest: ' + U.escapeHtml(strongest.label) + '</span>' +
+        '<span class="badge badge--warn">Weakest: ' + U.escapeHtml(weakest.label) + '</span>' +
+      '</div>' +
+    '</div>';
   }
 
   /* ---------- Donut + distribution ---------- */
@@ -101,7 +225,7 @@ App.views.statistics = (function () {
   function phaseTable(phases) {
     return '<div class="card card--pad-0 section"><div class="table-wrap"><table class="tbl">' +
       '<thead><tr><th>Phase</th><th>Progress</th><th>Completed</th><th>Remaining</th>' +
-      '<th>Active</th><th>Avg score</th><th>Status</th></tr></thead><tbody>' +
+      '<th>Active</th><th>Lessons</th><th>Avg score</th><th>Status</th></tr></thead><tbody>' +
       phases.map(function (p) {
         return '<tr>' +
           '<td class="cell-name"><span class="row row--tight"><i class="phase-dot" style="background:' +
@@ -111,6 +235,10 @@ App.views.statistics = (function () {
           '<td class="tnum">' + p.completed + '</td>' +
           '<td class="tnum">' + p.remaining + '</td>' +
           '<td class="tnum">' + p.inProgress + '</td>' +
+          '<td class="tnum small">' + (function () {
+            var cov = App.lessons.phaseCoverage(p.id);
+            return cov.withLesson ? cov.withLesson + '/' + cov.total : '<span class="faint">—</span>';
+          })() + '</td>' +
           '<td>' + (p.avgScore ? C.pips(Math.round(p.avgScore), C.scoreTone(p.avgScore)) +
             ' <span class="small faint tnum">' + p.avgScore + '</span>' : '<span class="faint">—</span>') + '</td>' +
           '<td><span class="badge badge--' + (p.percent === 100 ? 'ok' : p.percent === 0 ? 'muted' : 'accent') + '">' +

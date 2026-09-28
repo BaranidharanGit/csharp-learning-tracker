@@ -28,12 +28,19 @@ App.views.dashboard = (function () {
       statRow(o, streak, s, todayMinutes, goalMinutes) +
       '<div class="grid grid--2 section">' +
         focusCard(currentPhase, currentTopic, s, todayMinutes, goalMinutes) +
-        reviewCard(due, overdue) +
+        '<div class="stack">' +
+          todaysLessonCard(currentTopic) +
+          reviewCard(due, overdue) +
+        '</div>' +
       '</div>' +
       phaseSection(phases) +
       '<div class="grid grid--2">' +
         recentSessionsCard() +
         attentionCard() +
+      '</div>' +
+      '<div class="grid grid--2 section">' +
+        achievementsCard() +
+        demonstratedCard() +
       '</div>';
 
     wire(root);
@@ -43,6 +50,7 @@ App.views.dashboard = (function () {
 
   function statRow(o, streak, s, todayMinutes, goalMinutes) {
     var hours = P.totalHours();
+    var m = App.mastery.metrics();
     var goalPct = Math.min(100, Math.round((todayMinutes / goalMinutes) * 100));
 
     return '<div class="grid grid--stats section">' +
@@ -54,6 +62,8 @@ App.views.dashboard = (function () {
       tile('Total hours', String(hours), U.fmtDuration(P.totalMinutes()) + ' logged', '') +
       tile('Today', U.fmtDuration(todayMinutes), goalPct + '% of your ' + goalMinutes + 'm goal',
            todayMinutes >= goalMinutes ? 'ok' : '') +
+      tile('Demonstrated', String(m.demonstratedTopics),
+           m.lessonsViewed + ' topics opened', 'ok') +
     '</div>';
   }
 
@@ -69,21 +79,40 @@ App.views.dashboard = (function () {
   function focusCard(phase, topic, s, todayMinutes, goalMinutes) {
     var goal = s.dailyGoal && s.dailyGoal.date === U.today() ? s.dailyGoal : null;
     var goalPct = Math.min(100, Math.round((todayMinutes / goalMinutes) * 100));
+    var flow = topic ? App.lessons.steps(topic) : null;
+    var hasLesson = topic && App.lessons.has(topic.id);
 
-    var topicHtml = topic
-      ? '<div class="lrow" style="margin-top:8px">' +
+    var topicHtml;
+    if (!topic) {
+      topicHtml = '<p class="muted small" style="margin-top:8px">No topic in progress. Pick one from the Roadmap to begin.</p>';
+    } else {
+      topicHtml =
+        '<div class="lrow" style="margin-top:8px">' +
           '<div class="lrow__main">' +
-            '<div class="lrow__title">' + U.escapeHtml(topic.name) + '</div>' +
-            '<div class="lrow__sub">' + U.escapeHtml((App.PHASE_BY_ID[topic.phaseId] || {}).name || '') +
-              ' · U ' + topic.understanding + ' / C ' + topic.coding + ' / P ' + topic.problemSolving + '</div>' +
+            '<div class="lrow__title">' + U.escapeHtml(topic.name) +
+              (hasLesson ? '' : ' <span class="lesson-pill lesson-pill--none">no lesson yet</span>') + '</div>' +
+            '<div class="lrow__sub">U ' + topic.understanding + ' · C ' + topic.coding +
+              ' · P ' + topic.problemSolving + ' · D ' + topic.debugging + '</div>' +
           '</div>' +
           App.ui.statusBadge(topic.status) +
-          '<button class="btn btn--sm" data-edit-topic="' + topic.id + '">Open</button>' +
-        '</div>'
-      : '<p class="muted small" style="margin-top:8px">No topic in progress. Pick one from the Roadmap to begin.</p>';
+        '</div>';
+
+      if (flow) {
+        topicHtml +=
+          '<div style="margin-top:10px">' + C.progressBar(flow.percent, 'var(--accent)') +
+          '<div class="row small" style="margin-top:7px">' +
+            '<span class="faint">Lesson progress</span>' +
+            '<span class="spacer tnum">' + flow.percent + '%</span>' +
+          '</div></div>' +
+          '<div class="callout callout--note" style="margin-top:12px;margin-bottom:0">' +
+            '<span class="callout__label">Next action</span>' +
+            U.escapeHtml(App.lessons.nextActionLabel(topic)) +
+          '</div>';
+      }
+    }
 
     return '<div class="card">' +
-      '<div class="card__head">' + icon('target', 16) + '<h2>Current focus</h2>' +
+      '<div class="card__head">' + icon('target', 16) + '<h2>Current learning</h2>' +
         '<button class="btn btn--sm spacer" data-pick-focus>Change topic</button></div>' +
 
       '<div class="row" style="justify-content:space-between">' +
@@ -95,7 +124,16 @@ App.views.dashboard = (function () {
       '<div style="margin:9px 0 2px">' + C.progressBar(phase.percent, phase.color) + '</div>' +
       '<div class="small faint">' + phase.completed + ' completed · ' + phase.remaining + ' remaining</div>' +
 
-      '<div style="margin-top:14px"><div class="stat__label">Current topic</div>' + topicHtml + '</div>' +
+      '<div style="margin-top:14px"><div class="stat__label">Topic</div>' + topicHtml + '</div>' +
+
+      (topic
+        ? '<div class="row" style="margin-top:14px">' +
+            (hasLesson
+              ? '<button class="btn btn--primary btn--block" data-continue="' + U.escapeHtml(topic.id) + '">' +
+                icon('play', 14) + ' Continue learning</button>'
+              : '<button class="btn btn--block" data-edit-topic="' + U.escapeHtml(topic.id) + '">Track this topic manually</button>') +
+          '</div>'
+        : '') +
 
       '<div style="margin-top:16px;padding-top:14px;border-top:1px solid var(--border-soft)">' +
         '<div class="row"><div class="stat__label">Today\'s learning goal</div>' +
@@ -115,7 +153,44 @@ App.views.dashboard = (function () {
     '</div>';
   }
 
+  /* ---------- Today's lesson plan ---------- */
+
+  function todaysLessonCard(topic) {
+    if (!topic || !App.lessons.has(topic.id)) return '';
+    var mins = App.lessons.remainingMinutes(topic);
+    var flow = App.lessons.steps(topic);
+
+    return '<div class="card">' +
+      '<div class="card__head">' + icon('book', 16) + '<h2>Today\'s lesson</h2>' +
+        '<span class="spacer badge badge--accent">Level ' + (topic.learning.level || 1) + '/5</span></div>' +
+      '<div style="font-size:15px;font-weight:650;margin-bottom:10px">' + U.escapeHtml(topic.name) + '</div>' +
+      '<div class="grid grid--stats" style="gap:10px">' +
+        miniStat('Estimated', mins.estimate + 'm') +
+        miniStat('Spent', mins.spent + 'm') +
+        miniStat('Remaining', mins.remaining + 'm') +
+      '</div>' +
+      '<div style="margin-top:14px">' +
+        flow.steps.map(function (st) {
+          return '<div class="lrow" style="padding:7px 10px">' +
+            '<span class="lstep__mark' + (st.complete ? '' : '') + '" style="' +
+              (st.complete ? 'background:var(--ok);border-color:var(--ok);color:#fff' : '') + '">' +
+              (st.complete ? icon('check', 10) : '') + '</span>' +
+            '<div class="lrow__main"><div class="lrow__title" style="font-size:12.5px">' +
+              U.escapeHtml(st.label) + '</div></div>' +
+            '<span class="small faint tnum">' + st.done + '/' + st.total + '</span>' +
+          '</div>';
+        }).join('') +
+      '</div>' +
+    '</div>';
+  }
+
+  function miniStat(label, value) {
+    return '<div><div class="stat__label">' + U.escapeHtml(label) + '</div>' +
+      '<div style="font-size:18px;font-weight:700;margin-top:2px" class="tnum">' + U.escapeHtml(value) + '</div></div>';
+  }
+
   /* ---------- Today's review ---------- */
+
 
   function reviewCard(due, overdue) {
     var body;
@@ -218,7 +293,9 @@ App.views.dashboard = (function () {
               '<div class="lrow__sub">' + U.escapeHtml((App.PHASE_BY_ID[t.phaseId] || {}).name || '') +
               ' · average ' + avg + '/5</div></div>' +
             C.pips(Math.round(avg), C.scoreTone(avg)) +
-            '<button class="btn btn--sm" data-edit-topic="' + t.id + '">Open</button></div>';
+            (App.lessons.has(t.id)
+              ? '<button class="btn btn--sm" data-continue="' + t.id + '">Practise</button>'
+              : '<button class="btn btn--sm" data-edit-topic="' + t.id + '">Open</button>') + '</div>';
         }).join('');
     }
     if (retries.length) {
@@ -238,13 +315,64 @@ App.views.dashboard = (function () {
     return '<div class="card"><div class="card__head">' + icon('alert', 16) + '<h2>Needs attention</h2></div>' + body + '</div>';
   }
 
+  /* ---------- Recent achievements ---------- */
+
+  function achievementsCard() {
+    var list = App.mastery.recentAchievements(6);
+    var body = list.length
+      ? list.map(function (a) {
+          return '<div class="lrow">' +
+            '<span style="color:var(--ok)">' + icon('award', 16) + '</span>' +
+            '<div class="lrow__main"><div class="lrow__title">' + U.escapeHtml(a.label) + '</div>' +
+            '<div class="lrow__sub">' + U.relativeDay(a.date) + '</div></div></div>';
+        }).join('')
+      : '<div class="empty" style="padding:22px"><h3>Nothing unlocked yet</h3>' +
+        '<p>Open a lesson, pass an exercise, then a knowledge check. Achievements are earned, not given.</p></div>';
+
+    return '<div class="card"><div class="card__head">' + icon('award', 16) +
+      '<h2>Recent achievements</h2><span class="spacer badge badge--muted">' +
+      App.store.get().achievements.length + ' / ' + App.mastery.ACHIEVEMENTS.length + '</span></div>' + body + '</div>';
+  }
+
+  /* ---------- Time invested vs skill demonstrated ---------- */
+
+  function demonstratedCard() {
+    var m = App.mastery.metrics();
+    var o = P.overall();
+
+    return '<div class="card"><div class="card__head">' + icon('statistics', 16) +
+      '<h2>Viewed vs demonstrated</h2></div>' +
+      '<p class="small faint" style="margin-bottom:12px">Opening a lesson is not learning it. These two numbers ' +
+        'should stay close together.</p>' +
+      '<div class="grid grid--stats" style="gap:12px">' +
+        miniStat('Topics opened', String(m.lessonsViewed)) +
+        miniStat('Topics demonstrated', String(m.demonstratedTopics)) +
+        miniStat('Exercises passed', String(m.exercisesPassed)) +
+        miniStat('Solved with no help', String(m.independentSolves)) +
+      '</div>' +
+      '<div class="grid grid--stats" style="gap:12px;margin-top:12px">' +
+        miniStat('Checks passed', String(m.checksPassed)) +
+        miniStat('Challenges passed', String(m.challengesPassed)) +
+        miniStat('Hints used', String(m.hintsUsed)) +
+        miniStat('Solutions viewed', String(m.solutionsViewed)) +
+      '</div>' +
+      '<div style="margin-top:14px">' +
+        '<div class="row small faint" style="margin-bottom:5px"><span>Mastered</span>' +
+          '<span class="spacer tnum">' + o.mastered + ' of ' + o.total + '</span></div>' +
+        C.progressBar(o.total ? Math.round((o.mastered / o.total) * 100) : 0, 'var(--ok)') +
+      '</div>' +
+    '</div>';
+  }
+
   /* ---------- Events ---------- */
 
   function wire(root) {
     root.addEventListener('click', function (e) {
       var t;
 
-      if ((t = e.target.closest('[data-phase]'))) {
+      if ((t = e.target.closest('[data-continue]'))) {
+        App.router.go('learn', { topic: t.getAttribute('data-continue') });
+      } else if ((t = e.target.closest('[data-phase]'))) {
         App.router.go('roadmap', { phase: t.getAttribute('data-phase') });
       } else if ((t = e.target.closest('[data-edit-topic]'))) {
         App.topicForm.open(t.getAttribute('data-edit-topic'));

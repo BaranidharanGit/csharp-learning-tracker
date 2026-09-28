@@ -10,6 +10,7 @@
   <link rel="apple-touch-icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%238b5cf6'/%3E%3Ctext x='16' y='22' font-family='system-ui,sans-serif' font-size='16' font-weight='700' fill='white' text-anchor='middle'%3EC%23%3C/text%3E%3C/svg%3E" />
   <link rel="stylesheet" href="css/base.css" />
   <link rel="stylesheet" href="css/components.css" />
+  <link rel="stylesheet" href="css/learn.css" />
 </head>
 <body>
 
@@ -49,6 +50,7 @@
           <div class="session-pill" id="session-pill" hidden>
             <span class="dot"></span>
             <span id="session-timer">00:00:00</span>
+            <button class="btn btn--sm" id="session-pause" title="Pause the session timer">Pause</button>
             <button class="btn btn--sm btn--danger" id="session-stop">End session</button>
           </div>
           <div class="streak-chip" id="streak-chip" title="Current streak"></div>
@@ -73,14 +75,26 @@
   <script src="js/data/projects.js"></script>
   <script src="js/data/demo.js"></script>
 
+  <!-- Lesson content: the registry first, then one file per group of topics -->
+  <script src="js/data/lessons/registry.js"></script>
+  <script src="js/data/lessons/fundamentals-basics.js"></script>
+  <script src="js/data/lessons/fundamentals-flow.js"></script>
+  <script src="js/data/lessons/fundamentals-collections.js"></script>
+
   <script src="js/core/utils.js"></script>
   <script src="js/core/store.js"></script>
   <script src="js/core/review.js"></script>
   <script src="js/core/progress.js"></script>
   <script src="js/core/charts.js"></script>
+  <script src="js/core/highlight.js"></script>
+  <script src="js/core/lessons.js"></script>
+  <script src="js/core/exercises.js"></script>
+  <script src="js/core/mastery.js"></script>
+  <script src="js/core/runner.js"></script>
   <script src="js/core/icons.js"></script>
   <script src="js/core/ui.js"></script>
 
+  <script src="js/views/learn.js"></script>
   <script src="js/views/dashboard.js"></script>
   <script src="js/views/roadmap.js"></script>
   <script src="js/views/topics.js"></script>

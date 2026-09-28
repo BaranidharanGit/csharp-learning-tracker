@@ -44,6 +44,11 @@ echo "  ---------------------------"
 echo "  Serving on $URL"
 echo "  Press Ctrl+C to stop."
 echo ""
+if command -v dotnet >/dev/null 2>&1 && command -v node >/dev/null 2>&1; then
+  echo "  Tip: run ./start-runner.command in a second terminal to compile"
+  echo "       and execute real C# from inside the lessons."
+  echo ""
+fi
 
 open_browser &
 

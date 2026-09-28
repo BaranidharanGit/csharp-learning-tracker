@@ -95,3 +95,38 @@ App.SEED_PROJECTS = [
     ]
   }
 ];
+
+/* ============================================================
+   Mini-projects (schema v2)
+   These unlock progressively as you master the topics they need.
+   `requiredTopicIds` drives the unlock bar on the Projects page.
+   ============================================================ */
+App.SEED_MINI_PROJECTS = [
+  {
+    name: 'Personal Expense Tracker',
+    description: 'The C# Fundamentals capstone. A console app that records expenses, categorises them and reports on them - using only what you have learned in phase one. Build it once you can write the fundamentals without looking things up.',
+    technologies: ['C#', '.NET', 'Console'],
+    status: 'Not Started',
+    isMiniProject: true,
+    requiredTopicIds: [
+      'fundamentals:variables',
+      'fundamentals:conditions',
+      'fundamentals:loops',
+      'fundamentals:methods',
+      'fundamentals:lists',
+      'fundamentals:dictionaries'
+    ],
+    features: [
+      'Add an expense with an amount, category and date',
+      'Validate every input - reject anything that will not parse',
+      'List all expenses in a readable table',
+      'Total spending per category (dictionary)',
+      'Find the largest single expense and the busiest category',
+      'Monthly summary with an average per day',
+      'Reject duplicate entries (HashSet on a composite key)',
+      'Split the program into named methods, none longer than 20 lines',
+      'Handle an empty expense list everywhere without crashing'
+    ],
+    notes: 'Rules: no AI, no copying from the lessons. Use the topic notes you wrote yourself if you get stuck.'
+  }
+];

@@ -22,17 +22,29 @@ App.sessionControl = (function () {
   function start() {
     if (active()) { App.ui.toast('A session is already running.', 'warn'); return; }
 
-    var suggested = App.progress.currentTopic();
+    // Suggest the topic the learning engine thinks you should be on.
+    var suggested = App.lessons.suggestedTopic() || App.progress.currentTopic();
+    var nextAction = suggested && App.lessons.has(suggested.id)
+      ? App.lessons.nextActionLabel(suggested) : null;
+
     App.ui.formModal({
       title: 'Start a learning session',
-      subtitle: 'The timer runs until you press "End session".',
+      subtitle: nextAction
+        ? 'Suggested next: ' + nextAction
+        : 'The timer runs until you press "End session".',
       size: 'sm',
       fields: [
         { name: 'topicId', label: 'Topic', type: 'select',
           options: [{ value: '', label: '— decide later —' }].concat(App.ui.topicOptions()) },
-        { name: 'startTime', label: 'Start time', type: 'time' }
+        { name: 'startTime', label: 'Start time', type: 'time', full: false },
+        { name: 'openLesson', label: '', type: 'checkbox',
+          checkboxLabel: 'Open the lesson page and start learning straight away' }
       ],
-      values: { topicId: suggested ? suggested.id : '', startTime: U.nowTime() },
+      values: {
+        topicId: suggested ? suggested.id : '',
+        startTime: U.nowTime(),
+        openLesson: true
+      },
       submitLabel: 'Start',
       onSubmit: function (v) {
         App.store.update(function (s) {
@@ -40,29 +52,81 @@ App.sessionControl = (function () {
             startedAtMs: Date.now(),
             date: U.today(),
             startTime: v.startTime || U.nowTime(),
-            topicId: v.topicId || ''
+            topicId: v.topicId || '',
+            pausedMs: 0,
+            pausedAt: null
           };
         });
+
+        // Take the learner straight to the work, not to a list.
+        if (v.openLesson && v.topicId) {
+          App.router.go('learn', { topic: v.topicId });
+        }
         App.ui.toast('Session started. Good luck.', 'ok');
       }
     });
   }
+
+  /* ---------- Pause / resume ---------- */
+
+  function isPaused() {
+    var a = active();
+    return !!(a && a.pausedAt);
+  }
+
+  function pause() {
+    if (!active() || isPaused()) return;
+    App.store.update(function (s) { s.activeSession.pausedAt = Date.now(); });
+    App.ui.toast('Session paused', 'warn');
+  }
+
+  function resume() {
+    var a = active();
+    if (!a || !a.pausedAt) return;
+    App.store.update(function (s) {
+      s.activeSession.pausedMs = (s.activeSession.pausedMs || 0) + (Date.now() - s.activeSession.pausedAt);
+      s.activeSession.pausedAt = null;
+    });
+    App.ui.toast('Session resumed', 'ok');
+  }
+
+  function togglePause() { isPaused() ? resume() : pause(); }
 
   /** Stop the timer and open the session form prefilled with what we know. */
   function stop() {
     var a = active();
     if (!a) return;
 
-    var elapsedMinutes = Math.max(1, Math.round((Date.now() - a.startedAtMs) / 60000));
+    var elapsedMinutes = Math.max(1, Math.round(elapsedSeconds() / 60));
 
-    openForm(null, {
+    // Prefill what the learning engine already knows about this session's work.
+    var prefill = {
       date: a.date,
       startTime: a.startTime,
       endTime: U.nowTime(),
       durationMinutes: elapsedMinutes,
       topicId: a.topicId,
-      learned: '', struggled: '', exercises: 0, confidence: 3, notes: ''
-    }, {
+      learned: '', struggled: '', exercises: 0, confidence: 3, notes: '',
+      hintsUsed: 0, solutionsViewed: 0
+    };
+
+    var topic = a.topicId ? App.store.topicById(a.topicId) : null;
+    if (topic && topic.learning) {
+      var L = topic.learning;
+      var passed = 0, hints = 0, solutions = 0;
+      Object.keys(L.exercises || {}).forEach(function (id) {
+        var st = L.exercises[id];
+        if (st.passed) passed += 1;
+        hints += st.hintsUsed || 0;
+        if (st.solutionViewed) solutions += 1;
+      });
+      prefill.exercises = passed;
+      prefill.hintsUsed = hints;
+      prefill.solutionsViewed = solutions;
+      if (L.stillUnclear) prefill.struggled = L.stillUnclear;
+    }
+
+    openForm(null, prefill, {
       title: 'End session',
       subtitle: 'You studied for ' + U.fmtDuration(elapsedMinutes) + '. Capture it while it is fresh.',
       onSaved: clearActive,
@@ -88,10 +152,13 @@ App.sessionControl = (function () {
     App.store.update(function (s) { s.activeSession = null; });
   }
 
-  /** Seconds the current session has been running (0 when none). */
+  /** Seconds the current session has been running, excluding paused time. */
   function elapsedSeconds() {
     var a = active();
-    return a ? Math.floor((Date.now() - a.startedAtMs) / 1000) : 0;
+    if (!a) return 0;
+    var paused = a.pausedMs || 0;
+    if (a.pausedAt) paused += Date.now() - a.pausedAt;
+    return Math.max(0, Math.floor((Date.now() - a.startedAtMs - paused) / 1000));
   }
 
   /* ---------- The session form, shared by "end session" and manual logging ---------- */
@@ -110,6 +177,9 @@ App.sessionControl = (function () {
         placeholder: 'Concretely - what can you do now that you could not do before?' },
       { name: 'struggled', label: 'What I struggled with', type: 'textarea', rows: 2,
         placeholder: 'This is what tomorrow\'s session should start with.' },
+      { name: 'hintsUsed', label: 'Hints used', type: 'number', min: 0, max: 200, full: false,
+        hint: 'Filled in from the lesson page when it knows.' },
+      { name: 'solutionsViewed', label: 'Solutions viewed', type: 'number', min: 0, max: 200, full: false },
       { name: 'confidence', label: 'Confidence after this session (0-5)', type: 'range', min: 0, max: 5 },
       { name: 'notes', label: 'Notes', type: 'textarea', rows: 2 }
     ];
@@ -176,7 +246,10 @@ App.sessionControl = (function () {
     });
   }
 
-  return { start: start, stop: stop, active: active, elapsedSeconds: elapsedSeconds, openForm: openForm };
+  return {
+    start: start, stop: stop, active: active, elapsedSeconds: elapsedSeconds,
+    openForm: openForm, pause: pause, resume: resume, togglePause: togglePause, isPaused: isPaused
+  };
 })();
 
 /* ------------------------------------------------------------

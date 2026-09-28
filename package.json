@@ -1,0 +1,16 @@
+{
+  "name": "csharp-engineer-learning-tracker",
+  "version": "2.0.0",
+  "private": true,
+  "description": "Local-only interactive learning platform for C# - the app itself has no dependencies; jsdom is only needed to run the tests.",
+  "scripts": {
+    "test": "node --experimental-require-module tests/run.js",
+    "validate": "node tools/validate-lessons.js",
+    "validate:run": "node tools/validate-lessons.js --run",
+    "runner": "node tools/csharp-runner.js",
+    "serve": "python3 -m http.server 5173 --bind 127.0.0.1"
+  },
+  "devDependencies": {
+    "jsdom": "^26.0.0"
+  }
+}

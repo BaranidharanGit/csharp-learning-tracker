@@ -42,6 +42,12 @@ App.views.roadmap = (function () {
             '<div style="margin-top:10px">' + statusDistribution(o.counts) + '</div>' +
           '</div>' +
         '</div>' +
+        '<div class="callout callout--note" style="margin:14px 0 0">' +
+          '<span class="callout__label">Curriculum vs written lessons</span>' +
+          'All <b>' + o.total + '</b> topics are tracked. <b>' + App.lessons.all().length +
+          '</b> of them have a full interactive lesson so far - those are marked ' +
+          '<span class="lesson-pill">lesson</span>. The rest you track by hand until their lesson is written.' +
+        '</div>' +
       '</div>' +
 
       '<div class="toolbar">' +
@@ -97,9 +103,16 @@ App.views.roadmap = (function () {
           '<h3>' + U.escapeHtml(p.name) + '</h3>' +
           '<div class="small faint">' + U.escapeHtml(p.blurb || '') + '</div>' +
         '</div>' +
-        '<div style="width:110px;flex:0 0 auto">' + C.progressBar(p.percent, p.color) +
+        '<div style="width:130px;flex:0 0 auto">' + C.progressBar(p.percent, p.color) +
           '<div class="small faint tnum" style="margin-top:4px;text-align:right">' +
-            p.completed + '/' + p.total + ' · ' + p.percent + '%</div></div>' +
+            p.completed + '/' + p.total + ' · ' + p.percent + '%</div>' +
+          (function () {
+            var cov = App.lessons.phaseCoverage(p.id);
+            return cov.withLesson
+              ? '<div class="small faint" style="text-align:right">' + cov.withLesson + ' lessons</div>'
+              : '<div class="small faint" style="text-align:right">no lessons yet</div>';
+          })() +
+        '</div>' +
         '<span class="chev">' + icon('chevron', 16) + '</span>' +
       '</button>' +
       '<div class="phase-block__body">' +
@@ -115,12 +128,20 @@ App.views.roadmap = (function () {
   function topicChip(t) {
     var s = App.STATUS_BY_ID[t.status] || App.STATUS_BY_ID['not-started'];
     var due = t.nextReview && U.daysBetween(U.today(), t.nextReview) <= 0;
+    var hasLesson = App.lessons.has(t.id);
+    var flow = hasLesson ? App.lessons.steps(t) : null;
+
     var title = s.label +
-      ' · U' + t.understanding + ' C' + t.coding + ' P' + t.problemSolving +
+      ' · U' + t.understanding + ' C' + t.coding + ' P' + t.problemSolving + ' D' + t.debugging +
+      (hasLesson ? ' · lesson ' + flow.percent + '% complete' : ' · no lesson written yet') +
       (t.nextReview ? ' · next review ' + U.fmtDate(t.nextReview) : '');
+
     return '<button class="tchip' + (due ? ' is-due' : '') + '" data-topic="' + t.id + '" title="' +
       U.escapeHtml(title) + '">' +
       '<i style="background:' + s.color + '"></i>' + U.escapeHtml(t.name) +
+      (hasLesson
+        ? '<span class="lesson-pill">lesson</span>'
+        : '') +
       (due ? ' ' + icon('refresh', 11) : '') + '</button>';
   }
 
@@ -132,7 +153,7 @@ App.views.roadmap = (function () {
         openPhases[id] = !openPhases[id];
         t.parentElement.classList.toggle('is-open', !!openPhases[id]);
       } else if ((t = e.target.closest('[data-topic]'))) {
-        App.topicForm.open(t.getAttribute('data-topic'));
+        App.router.go('learn', { topic: t.getAttribute('data-topic') });
       } else if ((t = e.target.closest('[data-add-to]'))) {
         App.topicForm.open(null, t.getAttribute('data-add-to'));
       } else if (e.target.closest('[data-expand-all]')) {

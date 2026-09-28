@@ -14,7 +14,7 @@ App.store = (function () {
   var U = App.utils;
 
   var STORAGE_KEY = 'csharp-learning-tracker/v1';
-  var SCHEMA_VERSION = 1;
+  var SCHEMA_VERSION = 2;
 
   var state = null;              // the in-memory copy of the document
   var listeners = [];            // functions to call after every change
@@ -36,15 +36,39 @@ App.store = (function () {
       sessions: [],
       challenges: [],
       projects: [],
-      activeSession: null,      // { startedAtMs, date, startTime, topicId }
+      activeSession: null,      // { startedAtMs, date, startTime, topicId, pausedMs, pausedAt }
+      achievements: [],         // [{ id, date }] - unlocked milestones, see core/mastery.js
       meta: {
         createdAt: U.today(),
         projectsSeeded: false,
         demoLoaded: false,
         onboarded: false,
+        miniProjectsSeeded: false,
         // Roadmap topics you deleted on purpose, so they are not seeded back.
         removedRoadmapIds: []
       }
+    };
+  }
+
+  /**
+   * Blank per-topic learning record (schema v2).
+   * Everything the learning engine records about ONE topic lives here, so
+   * v1 documents can be upgraded simply by adding this object.
+   */
+  function blankLearning() {
+    return {
+      level: 1,               // highest difficulty level reached (1-5, see core/mastery.js)
+      lessonViewed: false,
+      sectionsRead: [],       // ids of lesson sections marked read
+      examplesViewed: [],     // ids of worked examples opened
+      exercises: {},          // exerciseId -> { passed, attempts, hintsUsed, solutionViewed, seconds, lastAt, response }
+      knowledgeCheck: { attempts: 0, bestScore: 0, passed: false, lastAt: null },
+      challenge: { attempts: 0, passed: false, lastAt: null, bestSeconds: null },
+      explanation: '',        // the learner's own explanation of the topic
+      stillUnclear: '',       // "What I still don't understand"
+      needsRevision: false,
+      manualStatus: null,     // set when the learner overrides the earned status
+      seconds: 0              // time spent on this topic's learning page
     };
   }
 
@@ -60,6 +84,7 @@ App.store = (function () {
       understanding: 0,
       coding: 0,
       problemSolving: 0,
+      debugging: 0,
       lastReviewed: null,
       nextReview: null,
       reviewStep: 0,        // position on the spaced-repetition ladder
@@ -68,6 +93,7 @@ App.store = (function () {
       mistakes: '',
       evidence: '',
       custom: !!custom,
+      learning: blankLearning(),
       createdAt: t,
       updatedAt: t
     };
@@ -89,6 +115,8 @@ App.store = (function () {
       }),
       githubUrl: seed.githubUrl || '',
       notes: seed.notes || '',
+      requiredTopicIds: (seed.requiredTopicIds || []).slice(),
+      isMiniProject: !!seed.isMiniProject,
       createdAt: U.today()
     };
   }
@@ -132,7 +160,42 @@ App.store = (function () {
       App.SEED_PROJECTS.forEach(function (p) { s.projects.push(makeProject(p)); });
       s.meta.projectsSeeded = true;
     }
+    // Mini-projects arrived with schema v2 - seed them separately so existing
+    // trackers gain them without their other projects being touched.
+    if (!s.meta.miniProjectsSeeded && App.SEED_MINI_PROJECTS) {
+      App.SEED_MINI_PROJECTS.forEach(function (p) {
+        if (!s.projects.some(function (x) { return x.name === p.name; })) {
+          var proj = makeProject(p);
+          proj.requiredTopicIds = (p.requiredTopicIds || []).slice();
+          proj.isMiniProject = true;
+          s.projects.push(proj);
+        }
+      });
+      s.meta.miniProjectsSeeded = true;
+    }
     return s;
+  }
+
+  /**
+   * Upgrade one topic's learning record: keeps whatever is already there and
+   * fills in anything a newer version of the app expects. Safe to call on
+   * undefined (a v1 topic) and on a partially-written v2 record.
+   */
+  function mergeLearning(existing) {
+    var base = blankLearning();
+    if (!existing || typeof existing !== 'object') return base;
+    var out = Object.assign(base, existing);
+    out.sectionsRead = Array.isArray(out.sectionsRead) ? out.sectionsRead : [];
+    out.examplesViewed = Array.isArray(out.examplesViewed) ? out.examplesViewed : [];
+    out.exercises = (out.exercises && typeof out.exercises === 'object') ? out.exercises : {};
+    out.knowledgeCheck = Object.assign(base.knowledgeCheck, out.knowledgeCheck || {});
+    out.challenge = Object.assign(base.challenge, out.challenge || {});
+    ['explanation', 'stillUnclear'].forEach(function (f) {
+      if (typeof out[f] !== 'string') out[f] = '';
+    });
+    out.level = Number(out.level) || 1;
+    out.seconds = Number(out.seconds) || 0;
+    return out;
   }
 
   /** Fill in any keys added by a newer version of the app. */
@@ -148,6 +211,7 @@ App.store = (function () {
       if (!Array.isArray(s[key])) s[key] = [];
     });
     if (s.activeSession === undefined) s.activeSession = null;
+    if (!Array.isArray(s.achievements)) s.achievements = [];
 
     // Backfill fields on individual records so older exports still load.
     s.topics.forEach(function (t) {
@@ -157,10 +221,27 @@ App.store = (function () {
       ['notes', 'mistakes', 'evidence'].forEach(function (f) {
         if (typeof t[f] !== 'string') t[f] = '';
       });
+      // --- schema v1 -> v2: the learning engine's per-topic state ---
+      if (typeof t.debugging !== 'number') t.debugging = 0;
+      t.learning = mergeLearning(t.learning);
     });
+
+    // v1 sessions have no help counters.
+    s.sessions.forEach(function (x) {
+      if (typeof x.hintsUsed !== 'number') x.hintsUsed = 0;
+      if (typeof x.solutionsViewed !== 'number') x.solutionsViewed = 0;
+    });
+
+    // A v1 document has no activeSession pause fields.
+    if (s.activeSession) {
+      if (typeof s.activeSession.pausedMs !== 'number') s.activeSession.pausedMs = 0;
+      if (s.activeSession.pausedAt === undefined) s.activeSession.pausedAt = null;
+    }
     s.projects.forEach(function (p) {
       if (!Array.isArray(p.features)) p.features = [];
       if (!Array.isArray(p.technologies)) p.technologies = [];
+      if (!Array.isArray(p.requiredTopicIds)) p.requiredTopicIds = [];
+      if (typeof p.isMiniProject !== 'boolean') p.isMiniProject = false;
     });
     return s;
   }
@@ -282,7 +363,7 @@ App.store = (function () {
      'lastReviewed', 'nextReview'].forEach(function (k) {
       if (values[k] !== undefined) out[k] = values[k];
     });
-    ['understanding', 'coding', 'problemSolving'].forEach(function (k) {
+    ['understanding', 'coding', 'problemSolving', 'debugging'].forEach(function (k) {
       if (values[k] !== undefined) out[k] = U.clamp(Number(values[k]) || 0, 0, 5);
     });
     return out;
@@ -310,6 +391,84 @@ App.store = (function () {
     });
   }
 
+  /* ---------- Learning state (schema v2) ---------- */
+
+  /**
+   * Mutate one topic's learning record.
+   *   store.updateLearning(id, function (L) { L.lessonViewed = true; });
+   * Always go through this rather than writing to topic.learning directly,
+   * so the change is saved and every view re-renders.
+   */
+  function updateLearning(topicId, mutator) {
+    update(function (s) {
+      var t = s.topics.filter(function (x) { return x.id === topicId; })[0];
+      if (!t) return;
+      t.learning = mergeLearning(t.learning);
+      mutator(t.learning, t);
+      t.updatedAt = U.today();
+    });
+  }
+
+  /** Record one exercise attempt and keep the best result. */
+  function recordExercise(topicId, exerciseId, result) {
+    updateLearning(topicId, function (L) {
+      var prev = touchExercise(L, exerciseId);
+      L.exercises[exerciseId] = {
+        // "passed" is sticky: once demonstrated, a later failed retry does not undo it.
+        passed: prev.passed || !!result.passed,
+        attempts: prev.attempts + 1,
+        hintsUsed: Math.max(prev.hintsUsed, result.hintsUsed || 0),
+        solutionViewed: prev.solutionViewed || !!result.solutionViewed,
+        seconds: prev.seconds + (result.seconds || 0),
+        lastAt: U.today(),
+        response: result.response !== undefined ? result.response : prev.response,
+        // Solved first time with no hints and without peeking at the answer.
+        independent: prev.independent ||
+          (!!result.passed && !result.hintsUsed && !result.solutionViewed)
+      };
+    });
+  }
+
+  /** Ensure an exercise record exists, then hand it to the caller. */
+  function touchExercise(L, exerciseId) {
+    if (!L.exercises[exerciseId]) {
+      L.exercises[exerciseId] = {
+        passed: false, attempts: 0, hintsUsed: 0, solutionViewed: false,
+        seconds: 0, lastAt: null, response: null, independent: false
+      };
+    }
+    return L.exercises[exerciseId];
+  }
+
+  /** Remember that a hint was revealed, even if the exercise is never submitted. */
+  function recordExerciseHint(topicId, exerciseId, hintsUsed) {
+    updateLearning(topicId, function (L) {
+      var rec = touchExercise(L, exerciseId);
+      rec.hintsUsed = Math.max(rec.hintsUsed, hintsUsed);
+    });
+  }
+
+  /** Remember that the solution was revealed - this ends "independent" status. */
+  function recordExerciseSolutionViewed(topicId, exerciseId) {
+    updateLearning(topicId, function (L) {
+      touchExercise(L, exerciseId).solutionViewed = true;
+    });
+  }
+
+  /** Add time spent on a topic's learning page (seconds). */
+  function addTopicSeconds(topicId, seconds) {
+    if (!seconds) return;
+    updateLearning(topicId, function (L) { L.seconds += seconds; });
+  }
+
+  /** Unlock a milestone once. Returns true the first time only. */
+  function unlockAchievement(id) {
+    var s = get();
+    if (s.achievements.some(function (a) { return a.id === id; })) return false;
+    update(function (st) { st.achievements.push({ id: id, date: U.today() }); });
+    return true;
+  }
+
   /* ---------- Session CRUD ---------- */
 
   function addSession(values) {
@@ -325,6 +484,9 @@ App.store = (function () {
       exercises: Number(values.exercises) || 0,
       confidence: U.clamp(Number(values.confidence) || 0, 0, 5),
       notes: values.notes || '',
+      // Schema v2: how much help was needed during this session.
+      hintsUsed: Number(values.hintsUsed) || 0,
+      solutionsViewed: Number(values.solutionsViewed) || 0,
       createdAt: U.today()
     };
     update(function (s) { s.sessions.push(session); });
@@ -341,7 +503,9 @@ App.store = (function () {
         topicId: values.topicId, learned: values.learned, struggled: values.struggled,
         exercises: Number(values.exercises) || 0,
         confidence: U.clamp(Number(values.confidence) || 0, 0, 5),
-        notes: values.notes
+        notes: values.notes,
+        hintsUsed: Number(values.hintsUsed) || 0,
+        solutionsViewed: Number(values.solutionsViewed) || 0
       });
     });
   }
@@ -469,6 +633,7 @@ App.store = (function () {
 
     state = migrate(incoming);
     ensureRoadmap(state);   // pick up any roadmap topics added since the export
+    ensureProjects(state);  // and any projects added since it, e.g. mini-projects
     writeStorage();
     notify();
     return {
@@ -533,6 +698,10 @@ App.store = (function () {
     addChallenge: addChallenge, updateChallenge: updateChallenge, deleteChallenge: deleteChallenge,
     addProject: addProject, updateProject: updateProject, deleteProject: deleteProject,
     setSetting: setSetting, setDailyGoal: setDailyGoal, toggleDailyGoalDone: toggleDailyGoalDone,
+    updateLearning: updateLearning, recordExercise: recordExercise,
+    recordExerciseHint: recordExerciseHint, recordExerciseSolutionViewed: recordExerciseSolutionViewed,
+    addTopicSeconds: addTopicSeconds, unlockAchievement: unlockAchievement,
+    blankLearning: blankLearning,
     exportJSON: exportJSON, exportToFile: exportToFile, importJSON: importJSON,
     resetAll: resetAll, loadDemoData: loadDemoData, storageSize: storageSize,
     restoreRoadmapTopics: restoreRoadmapTopics,

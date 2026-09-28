@@ -83,6 +83,9 @@
   width: 8px; height: 8px; border-radius: 50%; background: var(--ok);
   animation: pulse 1.6s ease-in-out infinite;
 }
+/* Paused sessions stop pulsing and go amber, so the state is unmistakable. */
+.session-pill.is-paused { background: var(--warn-soft); color: var(--warn); }
+.session-pill.is-paused .dot { background: var(--warn); animation: none; }
 @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: .3; } }
 
 /* ---------- Cards & layout helpers ---------- */

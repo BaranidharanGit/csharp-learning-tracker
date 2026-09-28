@@ -21,7 +21,10 @@ window.App = window.App || {};
     { id: 'challenges', label: 'Challenges', icon: 'challenges', count: function (s) { return s.challenges.length; } },
     { id: 'projects',   label: 'Projects',   icon: 'projects',   count: function (s) { return s.projects.length; } },
     { id: 'statistics', label: 'Statistics', icon: 'statistics' },
-    { id: 'settings',   label: 'Settings',   icon: 'settings'   }
+    { id: 'settings',   label: 'Settings',   icon: 'settings'   },
+    // Reachable by URL but not shown in the sidebar - you arrive here by
+    // opening a topic, not by navigating to a list.
+    { id: 'learn',      label: 'Learning',   icon: 'book', hidden: true }
   ];
 
   var ROUTE_BY_ID = ROUTES.reduce(function (m, r) { m[r.id] = r; return m; }, {});
@@ -64,7 +67,12 @@ window.App = window.App || {};
     }
 
     function handleRoute() {
+      var previous = current.route;
       current = parseHash();
+      // Leaving the learning page banks the time spent on it.
+      if (previous === 'learn' && current.route !== 'learn' && App.views.learn) {
+        App.views.learn.stopTimer();
+      }
       renderCurrent();
       renderNav();
     }
@@ -74,11 +82,14 @@ window.App = window.App || {};
       var host = freshViewHost();
       if (!view) { host.innerHTML = '<p class="muted">Page not found.</p>'; return; }
 
+      // Render first: a view may set its own title from the data it loads
+      // (the learning page titles itself after the topic).
+      view.render(host);
+
       document.getElementById('page-title').textContent = view.meta.title;
       document.getElementById('page-subtitle').textContent = view.meta.subtitle || '';
       document.title = view.meta.title + ' · C# Engineer Learning Tracker';
 
-      view.render(host);
       host.scrollTop = 0;
     }
 
@@ -115,7 +126,9 @@ window.App = window.App || {};
     var active = App.router.route();
     var overdue = App.review.overdueTopics(s.topics).length;
 
-    document.getElementById('nav').innerHTML = ROUTES.map(function (r) {
+    document.getElementById('nav').innerHTML = ROUTES.filter(function (r) {
+      return !r.hidden;
+    }).map(function (r) {
       var n = r.count ? r.count(s) : null;
       var alertClass = (r.alert && overdue > 0) ? ' is-alert' : '';
       return '<button class="nav-item' + (r.id === active ? ' is-active' : '') + '" data-route="' + r.id + '">' +
@@ -175,15 +188,23 @@ window.App = window.App || {};
     startBtn.hidden = !!active;
 
     if (active) {
+      var paused = App.sessionControl.isPaused();
       document.getElementById('session-timer').textContent =
         U.fmtClock(App.sessionControl.elapsedSeconds());
+      pill.classList.toggle('is-paused', paused);
+
+      var pauseBtn = document.getElementById('session-pause');
+      if (pauseBtn) {
+        pauseBtn.innerHTML = paused ? App.icons('play', 12) + ' Resume' : App.icons('stop', 12) + ' Pause';
+        pauseBtn.title = paused ? 'Resume the session timer' : 'Pause the session timer';
+      }
     }
   }
 
   function startTimerLoop() {
     renderSessionPill();
     setInterval(function () {
-      if (App.sessionControl.active()) renderSessionPill();
+      if (App.sessionControl.active() && !App.sessionControl.isPaused()) renderSessionPill();
     }, 1000);
   }
 
@@ -253,6 +274,10 @@ window.App = window.App || {};
     });
     document.getElementById('session-stop').addEventListener('click', function () {
       App.sessionControl.stop();
+    });
+    document.getElementById('session-pause').addEventListener('click', function () {
+      App.sessionControl.togglePause();
+      renderSessionPill();
     });
     document.getElementById('theme-btn').addEventListener('click', toggleTheme);
     document.getElementById('menu-btn').innerHTML = App.icons('menu', 18);

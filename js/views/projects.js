@@ -105,19 +105,61 @@ App.views.projects = (function () {
       '<span class="stat__hint">' + U.escapeHtml(hint) + '</span></div>';
   }
 
+  /**
+   * A mini-project unlocks as you reach Comfortable on the topics it needs.
+   * Returns null for ordinary projects.
+   */
+  function unlockState(project) {
+    var required = project.requiredTopicIds || [];
+    if (!required.length) return null;
+
+    var met = required.filter(function (id) {
+      var t = App.store.topicById(id);
+      return t && App.progress.isCompleted(t);
+    });
+
+    return {
+      required: required,
+      met: met.length,
+      total: required.length,
+      percent: Math.round((met.length / required.length) * 100),
+      unlocked: met.length === required.length,
+      missing: required.filter(function (id) {
+        var t = App.store.topicById(id);
+        return !t || !App.progress.isCompleted(t);
+      })
+    };
+  }
+
   function card(p) {
     var pr = P.projectProgress(p);
     var tone = STATUS_TONE[p.status] || 'muted';
     var overdue = p.targetDate && p.status !== 'Completed' && U.daysBetween(U.today(), p.targetDate) < 0;
+    var unlock = unlockState(p);
 
     return '<div class="card proj">' +
       '<div class="proj__head">' +
         '<div style="min-width:0;flex:1">' +
-          '<div class="proj__name">' + U.escapeHtml(p.name) + '</div>' +
+          '<div class="proj__name">' + U.escapeHtml(p.name) +
+            (p.isMiniProject ? ' <span class="lesson-pill">mini-project</span>' : '') + '</div>' +
           '<span class="badge badge--' + tone + '" style="margin-top:5px">' + U.escapeHtml(p.status) + '</span>' +
         '</div>' +
         '<button class="icon-btn icon-btn--bare" data-edit="' + p.id + '" title="Edit">' + icon('edit', 15) + '</button>' +
       '</div>' +
+
+      (unlock
+        ? '<div class="callout callout--' + (unlock.unlocked ? 'note' : 'warning') + '" style="margin:0">' +
+            '<span class="callout__label">' + (unlock.unlocked ? 'Unlocked' : 'Unlocks as you learn') + '</span>' +
+            (unlock.unlocked
+              ? 'You are comfortable with every topic this project needs. Time to build it.'
+              : unlock.met + ' of ' + unlock.total + ' required topics reached Comfortable. Still to go: ' +
+                unlock.missing.slice(0, 3).map(function (id) {
+                  return U.escapeHtml(App.store.topicName(id));
+                }).join(', ') + (unlock.missing.length > 3 ? ' and ' + (unlock.missing.length - 3) + ' more' : '')) +
+            '<div style="margin-top:8px">' + C.progressBar(unlock.percent,
+              unlock.unlocked ? 'var(--ok)' : 'var(--warn)') + '</div>' +
+          '</div>'
+        : '') +
 
       (p.description ? '<p class="proj__desc">' + U.escapeHtml(p.description) + '</p>' : '') +
 

@@ -12,11 +12,22 @@ App.views = App.views || {};
 App.reviewFlow = (function () {
   'use strict';
 
-  var U = App.utils, R = App.review;
+  var U = App.utils, R = App.review, icon = App.icons;
 
-  function open(topicId) {
+  /**
+   * Reviewing is retrieval practice, not re-reading. If the topic has a
+   * lesson, we ask a couple of its knowledge-check questions first and only
+   * then offer the difficulty rating.
+   */
+  function open(topicId, skipRetrieval) {
     var t = App.store.topicById(topicId);
     if (!t) { App.ui.toast('That topic no longer exists.', 'warn'); return; }
+
+    var lesson = App.lessons.get(topicId);
+    if (!skipRetrieval && lesson && lesson.knowledgeChecks.length) {
+      retrievalTest(t, lesson);
+      return;
+    }
 
     var phase = App.PHASE_BY_ID[t.phaseId] || {};
 
@@ -68,6 +79,107 @@ App.reviewFlow = (function () {
             h.close();
             App.topicForm.open(t.id);
           }
+        });
+      }
+    });
+  }
+
+  /** Pick `count` questions, rotating by how many times this topic has been reviewed. */
+  function pickQuestions(lesson, count, offset) {
+    var qs = lesson.knowledgeChecks;
+    var out = [];
+    for (var i = 0; i < Math.min(count, qs.length); i++) {
+      out.push(qs[(offset + i) % qs.length]);
+    }
+    return out;
+  }
+
+  function retrievalTest(topic, lesson) {
+    var questions = pickQuestions(lesson, 2, topic.reviewCount || 0);
+    var answers = {};
+
+    function questionHtml(q, i) {
+      var input;
+      if (q.type === 'mcq') {
+        input = '<div class="opts">' + (q.options || []).map(function (o, oi) {
+          return '<label class="opt"><input type="radio" name="rt-' + i + '" ' +
+            'data-rt="' + U.escapeHtml(q.id) + '" value="' + oi + '"><span>' +
+            U.escapeHtml(o).replace(/`([^`]+)`/g, '<code>$1</code>') + '</span></label>';
+        }).join('') + '</div>';
+      } else {
+        input = '<input type="text" class="input" data-rt="' + U.escapeHtml(q.id) +
+          '" placeholder="From memory - do not look it up">';
+      }
+      return '<div class="kc__q">' +
+        '<div class="kc__num">Recall ' + (i + 1) + ' of ' + questions.length + '</div>' +
+        '<div class="kc__prompt">' + U.escapeHtml(q.prompt) + '</div>' +
+        (q.code ? App.highlight.block(q.code, { copy: false }) : '') +
+        input + '</div>';
+    }
+
+    App.ui.openModal({
+      title: 'Review: ' + topic.name,
+      subtitle: 'Retrieval practice - answer before you rate yourself',
+      bodyHtml:
+        '<p class="small muted" style="margin-bottom:10px">Re-reading feels like learning but is not. ' +
+          'Answer these from memory first - getting one wrong is far more useful than getting it right.</p>' +
+        questions.map(questionHtml).join('') +
+        '<div id="rt-result"></div>',
+      footerHtml:
+        '<button class="btn left btn--sm" data-skip-retrieval>Skip to rating</button>' +
+        '<button class="btn" data-close>Cancel</button>' +
+        '<button class="btn btn--primary" data-rt-check>Check my answers</button>',
+      onMount: function (h) {
+        h.root.addEventListener('change', function (e) {
+          var id = e.target.getAttribute && e.target.getAttribute('data-rt');
+          if (id) answers[id] = e.target.value;
+        });
+        h.root.addEventListener('input', function (e) {
+          var id = e.target.getAttribute && e.target.getAttribute('data-rt');
+          if (id) answers[id] = e.target.value;
+        });
+
+        h.root.querySelector('[data-skip-retrieval]').addEventListener('click', function () {
+          h.close();
+          open(topic.id, true);
+        });
+
+        h.root.querySelector('[data-rt-check]').addEventListener('click', function () {
+          var correct = 0;
+          var rows = questions.map(function (q) {
+            var given = q.type === 'mcq' ? Number(answers[q.id]) : (answers[q.id] || '');
+            var r = App.exercises.evaluate(q, given);
+            if (r.passed) correct += 1;
+            return '<li class="' + (r.passed ? 'ok' : 'no') + '"><span class="mark">' +
+              icon(r.passed ? 'check' : 'x', 13) + '</span><span>' +
+              U.escapeHtml(q.prompt.slice(0, 70)) + (q.prompt.length > 70 ? '…' : '') +
+              (q.explanation ? '<br><span class="faint">' + U.escapeHtml(q.explanation) + '</span>' : '') +
+              '</span></li>';
+          }).join('');
+
+          h.root.querySelector('#rt-result').innerHTML =
+            '<div class="feedback ' + (correct === questions.length ? 'feedback--pass' : 'feedback--fail') +
+              '" style="margin-top:14px">' +
+              '<div class="feedback__head">' + icon(correct === questions.length ? 'check' : 'alert', 15) +
+                '<span>' + correct + ' of ' + questions.length + ' recalled</span></div>' +
+              '<ul class="feedback__list">' + rows + '</ul>' +
+              '<p class="small" style="margin-top:10px">Now rate how that felt - be honest, the schedule depends on it.</p>' +
+            '</div>';
+
+          // Record the retrieval attempt, then move on to the rating.
+          App.store.updateLearning(topic.id, function (L) {
+            L.knowledgeCheck.attempts += 1;
+            var score = Math.round((correct / questions.length) * 100);
+            L.knowledgeCheck.bestScore = Math.max(L.knowledgeCheck.bestScore, score);
+            L.knowledgeCheck.lastAt = U.today();
+          });
+
+          var footer = h.root.querySelector('.modal__foot');
+          footer.innerHTML = '<button class="btn btn--primary" data-rt-continue>Rate difficulty</button>';
+          footer.querySelector('[data-rt-continue]').addEventListener('click', function () {
+            h.close();
+            open(topic.id, true);
+          });
         });
       }
     });

@@ -25,6 +25,8 @@ App.topicForm = (function () {
         hint: 'Can you write it without looking it up?' },
       { name: 'problemSolving', label: 'Problem solving (0-5)', type: 'range', min: 0, max: 5, full: false,
         hint: 'Can you apply it to a problem you have not seen?' },
+      { name: 'debugging', label: 'Debugging (0-5)', type: 'range', min: 0, max: 5, full: false,
+        hint: 'Can you find and fix a bug in it without help?' },
       { name: 'lastReviewed', label: 'Last reviewed', type: 'date', full: false },
       { name: 'nextReview', label: 'Next review', type: 'date', full: false },
       { name: 'notes', label: 'Notes', type: 'textarea', rows: 3,
@@ -41,12 +43,13 @@ App.topicForm = (function () {
 
     var values = editing ? Object.assign({}, editing) : {
       name: '', phaseId: defaultPhaseId || App.progress.currentPhase().id,
-      status: 'not-started', understanding: 0, coding: 0, problemSolving: 0,
+      status: 'not-started', understanding: 0, coding: 0, problemSolving: 0, debugging: 0,
       lastReviewed: '', nextReview: '', notes: '', mistakes: '', evidence: ''
     };
 
     var footerExtras = editing
-      ? '<button type="button" class="btn btn--sm" data-mark-mastered>Mark mastered</button>' +
+      ? (App.lessons.has(editing.id)
+          ? '<button type="button" class="btn btn--sm btn--primary" data-open-lesson>Open lesson</button>' : '') +
         '<button type="button" class="btn btn--sm" data-review-now>Review now</button>' +
         '<button type="button" class="btn btn--sm btn--outline-danger" data-delete>Delete</button>'
       : '';
@@ -55,7 +58,8 @@ App.topicForm = (function () {
       title: editing ? editing.name : 'Add topic',
       subtitle: editing
         ? (App.PHASE_BY_ID[editing.phaseId] || {}).name +
-          (editing.reviewCount ? ' · reviewed ' + editing.reviewCount + 'x' : '')
+          (editing.reviewCount ? ' · reviewed ' + editing.reviewCount + 'x' : '') +
+          (App.lessons.has(editing.id) ? ' · interactive lesson available' : ' · no lesson written yet')
         : 'Add a topic of your own to any phase',
       size: 'wide',
       fields: fields(),
@@ -64,8 +68,11 @@ App.topicForm = (function () {
       extraFooterHtml: footerExtras,
       onSubmit: function (v) {
         if (editing) {
+          var statusChanged = v.status !== editing.status;
           App.store.updateTopic(editing.id, v);
-          App.ui.toast('Saved ' + v.name, 'ok');
+          // Changing the status by hand is an override, and is labelled as one.
+          if (statusChanged) App.mastery.setManualStatus(editing.id, v.status);
+          App.ui.toast('Saved ' + v.name + (statusChanged ? ' (status set manually)' : ''), 'ok');
         } else {
           App.store.addTopic(v);
           App.ui.toast('Added ' + v.name, 'ok');
@@ -74,13 +81,9 @@ App.topicForm = (function () {
       onFooterClick: function (e, handle) {
         if (!editing) return;
 
-        if (e.target.closest('[data-mark-mastered]')) {
-          App.store.updateTopic(editing.id, {
-            status: 'mastered', understanding: 5, coding: 5, problemSolving: 5,
-            lastReviewed: U.today(), nextReview: U.addDays(U.today(), 30)
-          });
+        if (e.target.closest('[data-open-lesson]')) {
           handle.close();
-          App.ui.toast(editing.name + ' marked as mastered', 'ok');
+          App.router.go('learn', { topic: editing.id });
         }
 
         if (e.target.closest('[data-review-now]')) {
@@ -124,6 +127,7 @@ App.views.topics = (function () {
     { value: 'name', label: 'Name (A-Z)' },
     { value: 'status', label: 'Status (furthest first)' },
     { value: 'weakest', label: 'Weakest score first' },
+    { value: 'lesson', label: 'Has a lesson first' },
     { value: 'review', label: 'Next review soonest' },
     { value: 'updated', label: 'Recently updated' }
   ];
@@ -149,6 +153,9 @@ App.views.topics = (function () {
                         if (!a.nextReview) return 1;
                         if (!b.nextReview) return -1;
                         return a.nextReview.localeCompare(b.nextReview);
+                      }); break;
+      case 'lesson':  list.sort(function (a, b) {
+                        return (App.lessons.has(b.id) ? 1 : 0) - (App.lessons.has(a.id) ? 1 : 0);
                       }); break;
       case 'updated': list.sort(function (a, b) { return (b.updatedAt || '').localeCompare(a.updatedAt || ''); }); break;
       default: break; // already in roadmap order
@@ -198,7 +205,8 @@ App.views.topics = (function () {
     return '<div class="card card--pad-0"><div class="table-wrap"><table class="tbl">' +
       '<thead><tr>' +
         '<th>Topic</th><th>Phase</th><th>Status</th>' +
-        '<th title="Understanding">Und.</th><th title="Coding">Code</th><th title="Problem solving">Solve</th>' +
+        '<th title="Understanding">Und.</th><th title="Coding">Code</th>' +
+        '<th title="Problem solving">Solve</th><th title="Debugging">Debug</th>' +
         '<th>Last reviewed</th><th>Next review</th><th class="col-actions"></th>' +
       '</tr></thead><tbody>' +
       list.map(row).join('') +
@@ -216,6 +224,8 @@ App.views.topics = (function () {
     return '<tr data-row="' + t.id + '">' +
       '<td class="cell-name">' + U.escapeHtml(t.name) +
         (t.custom ? ' <span class="tag">custom</span>' : '') +
+        (App.lessons.has(t.id) ? ' <span class="lesson-pill">lesson</span>' : '') +
+        (App.mastery.isManual(t) ? ' <span class="badge badge--warn" title="Status set by hand">manual</span>' : '') +
         (t.notes || t.mistakes ? ' <span class="faint" title="Has notes">' + icon('book', 12) + '</span>' : '') +
       '</td>' +
       '<td><span class="row row--tight"><i class="phase-dot" style="background:' + phase.color +
@@ -224,9 +234,14 @@ App.views.topics = (function () {
       '<td>' + C.pips(t.understanding, C.scoreTone(t.understanding)) + '</td>' +
       '<td>' + C.pips(t.coding, C.scoreTone(t.coding)) + '</td>' +
       '<td>' + C.pips(t.problemSolving, C.scoreTone(t.problemSolving)) + '</td>' +
+      '<td>' + C.pips(t.debugging, C.scoreTone(t.debugging)) + '</td>' +
       '<td class="small faint">' + (t.lastReviewed ? U.fmtDateShort(t.lastReviewed) : '—') + '</td>' +
       '<td class="small">' + nextCell + '</td>' +
       '<td class="col-actions">' +
+        (App.lessons.has(t.id)
+          ? '<button class="icon-btn icon-btn--bare" data-learn="' + t.id + '" title="Open the lesson">' +
+            icon('book', 15) + '</button>'
+          : '') +
         '<button class="icon-btn icon-btn--bare" data-review="' + t.id + '" title="Review now">' + icon('refresh', 15) + '</button>' +
         '<button class="icon-btn icon-btn--bare" data-edit="' + t.id + '" title="Edit">' + icon('edit', 15) + '</button>' +
         '<button class="icon-btn icon-btn--bare icon-btn--danger" data-del="' + t.id + '" title="Delete">' + icon('trash', 15) + '</button>' +
@@ -245,7 +260,8 @@ App.views.topics = (function () {
   function wire(root) {
     root.addEventListener('click', function (e) {
       var t;
-      if ((t = e.target.closest('[data-edit]'))) App.topicForm.open(t.getAttribute('data-edit'));
+      if ((t = e.target.closest('[data-learn]'))) App.router.go('learn', { topic: t.getAttribute('data-learn') });
+      else if ((t = e.target.closest('[data-edit]'))) App.topicForm.open(t.getAttribute('data-edit'));
       else if ((t = e.target.closest('[data-review]'))) App.reviewFlow.open(t.getAttribute('data-review'));
       else if ((t = e.target.closest('[data-del]'))) confirmDelete(t.getAttribute('data-del'));
       else if (e.target.closest('[data-add]')) App.topicForm.open(null, filters.phase !== 'all' ? filters.phase : null);
@@ -258,8 +274,11 @@ App.views.topics = (function () {
     root.addEventListener('change', function (e) {
       if (e.target.matches('[data-status-for]')) {
         var id = e.target.getAttribute('data-status-for');
-        App.store.updateTopic(id, { status: e.target.value });
-        App.ui.toast(App.store.topicName(id) + ' → ' + App.STATUS_BY_ID[e.target.value].label, 'ok', 1600);
+        // Setting a status by hand is recorded as a manual override, so the
+        // mastery engine will not silently move it back.
+        App.mastery.setManualStatus(id, e.target.value);
+        App.ui.toast(App.store.topicName(id) + ' → ' + App.STATUS_BY_ID[e.target.value].label +
+                     ' (manual)', 'warn', 1800);
       } else if (e.target.matches('[data-filter]')) {
         filters[e.target.getAttribute('data-filter')] = e.target.value;
         App.router.refresh();
